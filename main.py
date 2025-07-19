@@ -1,176 +1,160 @@
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import sqlite3
 from flask import Flask, request
+import telebot
+import sqlite3
+import os
 
-API_TOKEN = "7901522397:AAGtp5KPLlUDtAy7FPxoFpOX9uj0SYVL-gQ"  # ЗАМЕНИ сюда свой токен
+TOKEN = "7901522397:AAGtp5KPLlUDtAy7FPxoFpOX9uj0SYVL-gQ"
+WEBHOOK_URL = "https://avelshop-bot.onrender.com/"
 
-WEBHOOK_URL = "https://avelshop-bot.onrender.com/"  # не забудь слэш в конце!
-
-bot = telebot.TeleBot(API_TOKEN)
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# ─── Инициализация БД ──────────────────────────────────────────────────────
-def init_db():
-    conn = sqlite3.connect("avelshop.db")
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    caps INTEGER DEFAULT 0
-                )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS inventory (
-                    user_id INTEGER,
-                    skin TEXT
-                )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS shop (
-                    name TEXT PRIMARY KEY,
-                    price INTEGER
-                )''')
-    # Примеры скинов
-    c.execute("INSERT OR IGNORE INTO shop VALUES ('AK-47 | Redline', 1000)")
-    c.execute("INSERT OR IGNORE INTO shop VALUES ('AWP | Asiimov', 1800)")
-    conn.commit()
-    conn.close()
+# --- DB SETUP ---
+conn = sqlite3.connect("avelshop.db", check_same_thread=False)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    balance INTEGER DEFAULT 0
+)
+""")
+c.execute("""
+CREATE TABLE IF NOT EXISTS inventory (
+    user_id INTEGER,
+    item TEXT
+)
+""")
+c.execute("""
+CREATE TABLE IF NOT EXISTS shop (
+    name TEXT,
+    price INTEGER
+)
+""")
+conn.commit()
 
-init_db()
-
-# ─── Команда /start ────────────────────────────────────────────────────────
-@bot.message_handler(commands=["start"])
-def start(msg):
-    conn = sqlite3.connect("avelshop.db")
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (msg.from_user.id,))
-    conn.commit()
-    conn.close()
-    bot.send_message(msg.chat.id, "📍 Главное меню:", reply_markup=main_menu())
-
-# ─── Главное меню ──────────────────────────────────────────────────────────
+# --- Меню ---
 def main_menu():
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🛒 Магазин", callback_data="shop"))
-    kb.add(InlineKeyboardButton("🎒 Инвентарь", callback_data="inv"))
-    kb.add(InlineKeyboardButton("💰 Баланс", callback_data="bal"))
-    kb.add(InlineKeyboardButton("🛠 Админка", callback_data="admin"))
-    return kb
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.row(
+        telebot.types.InlineKeyboardButton("🛒 Магазин", callback_data="shop"),
+        telebot.types.InlineKeyboardButton("🎒 Инвентарь", callback_data="inventory")
+    )
+    markup.row(
+        telebot.types.InlineKeyboardButton("💰 Баланс", callback_data="balance"),
+        telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin")
+    )
+    return markup
 
-# ─── Обработка кнопок ──────────────────────────────────────────────────────
-@bot.callback_query_handler(func=lambda c: True)
-def handle_callback(call):
+# --- Старт ---
+@bot.message_handler(commands=["start"])
+def start(message):
+    user_id = message.from_user.id
+    c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    if not c.fetchone():
+        c.execute("INSERT INTO users (id, balance) VALUES (?, ?)", (user_id, 0))
+        conn.commit()
+    bot.send_message(user_id, "\ud83d\udccd Главное меню:", reply_markup=main_menu())
+
+# --- Обработка кнопок ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
     user_id = call.from_user.id
-    conn = sqlite3.connect("avelshop.db")
-    c = conn.cursor()
 
-    if call.data == "shop":
-        c.execute("SELECT * FROM shop")
+    if call.data == "balance":
+        c.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
+        balance = c.fetchone()[0]
+        bot.answer_callback_query(call.id)
+        bot.send_message(user_id, f"\ud83d\udcb0 У вас {balance} Кэпов.")
+
+    elif call.data == "inventory":
+        c.execute("SELECT item FROM inventory WHERE user_id = ?", (user_id,))
         items = c.fetchall()
-        if not items:
-            bot.answer_callback_query(call.id, "Скины не найдены.")
+        if items:
+            inv = "\n".join([f"• {item[0]}" for item in items])
+            bot.send_message(user_id, f"\ud83c\udf92 Ваши скины:\n{inv}")
+        else:
+            bot.send_message(user_id, "\ud83c\udf92 Ваш инвентарь пуст.")
+
+    elif call.data == "shop":
+        c.execute("SELECT name, price FROM shop")
+        skins = c.fetchall()
+        if not skins:
+            bot.send_message(user_id, "\u26d4 Магазин пуст.")
             return
-        kb = InlineKeyboardMarkup()
-        for name, price in items:
-            kb.add(InlineKeyboardButton(f"{name} - {price} Кэпов", callback_data=f"buy|{name}"))
-        bot.edit_message_text("🛍️ Доступные скины:", call.message.chat.id, call.message.message_id, reply_markup=kb)
+        msg = "\ud83c\udf81 Доступные скины:\n"
+        markup = telebot.types.InlineKeyboardMarkup()
+        for name, price in skins:
+            msg += f"{name} - {price} Кэпов\n"
+            markup.add(telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buy|{name}"))
+        bot.send_message(user_id, msg, reply_markup=markup)
 
     elif call.data.startswith("buy|"):
-        item = call.data.split("|")[1]
-        c.execute("SELECT price FROM shop WHERE name=?", (item,))
-        row = c.fetchone()
-        if not row:
-            bot.answer_callback_query(call.id, "Скин не найден.")
+        item = call.data.split("|", 1)[1]
+        c.execute("SELECT price FROM shop WHERE name = ?", (item,))
+        result = c.fetchone()
+        if not result:
+            bot.send_message(user_id, "\u274c Скин не найден.")
             return
-        price = row[0]
-        c.execute("SELECT caps FROM users WHERE user_id=?", (user_id,))
+        price = result[0]
+        c.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
         balance = c.fetchone()[0]
-
-        c.execute("SELECT skin FROM inventory WHERE user_id=? AND skin=?", (user_id, item))
-        if c.fetchone():
-            bot.answer_callback_query(call.id, "📦 У вас уже есть этот скин.")
-            return
-
         if balance < price:
-            bot.answer_callback_query(call.id, "⛔ Недостаточно Кэпов.")
-        else:
-            c.execute("UPDATE users SET caps = caps - ? WHERE user_id=?", (price, user_id))
-            c.execute("INSERT INTO inventory VALUES (?, ?)", (user_id, item))
-            conn.commit()
-            bot.answer_callback_query(call.id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
-            bot.edit_message_text("📍 Главное меню:", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-
-    elif call.data == "inv":
-        c.execute("SELECT skin FROM inventory WHERE user_id=?", (user_id,))
-        inv = c.fetchall()
-        if inv:
-            skins = "\n".join(f"• {i[0]}" for i in inv)
-            bot.edit_message_text(f"🎒 Ваши скины:\n{skins}", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-        else:
-            bot.edit_message_text("🎒 Ваш инвентарь пуст.", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-
-    elif call.data == "bal":
-        c.execute("SELECT caps FROM users WHERE user_id=?", (user_id,))
-        bal = c.fetchone()[0]
-        bot.edit_message_text(f"💰 У вас {bal} Кэпов.", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+            bot.send_message(user_id, "\u26d4 Недостаточно Кэпов.")
+            return
+        c.execute("SELECT item FROM inventory WHERE user_id = ? AND item = ?", (user_id, item))
+        if c.fetchone():
+            bot.send_message(user_id, "\ud83d\udce6 У вас уже есть этот скин.")
+            return
+        c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (price, user_id))
+        c.execute("INSERT INTO inventory (user_id, item) VALUES (?, ?)", (user_id, item))
+        conn.commit()
+        bot.send_message(user_id, f"\u2705 Покупка прошла успешно!\nВы приобрели: {item}")
 
     elif call.data == "admin":
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("/addskin <название> <цена>", callback_data="none"))
-        kb.add(InlineKeyboardButton("/removeskin <название>", callback_data="none"))
-        kb.add(InlineKeyboardButton("/add <id> <сумма>", callback_data="none"))
-        kb.add(InlineKeyboardButton("/remove <id> <сумма>", callback_data="none"))
-        bot.edit_message_text("🔧 Команды:", call.message.chat.id, call.message.message_id, reply_markup=kb)
+        bot.send_message(user_id, "\ud83d\udd27 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>")
 
-    conn.close()
-
-# ─── Админ команды ─────────────────────────────────────────────────────────
-@bot.message_handler(commands=["add", "remove", "addskin", "removeskin"])
-def admin_commands(msg):
-    user_id = msg.from_user.id
-    args = msg.text.split()
-    conn = sqlite3.connect("avelshop.db")
-    c = conn.cursor()
-
-    if msg.text.startswith("/addskin") and len(args) >= 3:
-        name = " ".join(args[1:-1])
-        price = int(args[-1])
-        c.execute("INSERT OR REPLACE INTO shop VALUES (?, ?)", (name, price))
+# --- Команды админа ---
+@bot.message_handler(commands=["addskin", "removeskin", "add", "remove"])
+def admin_commands(message):
+    user_id = message.from_user.id
+    cmd = message.text.split()
+    if message.text.startswith("/addskin") and len(cmd) >= 3:
+        name, price = " ".join(cmd[1:-1]), int(cmd[-1])
+        c.execute("INSERT INTO shop (name, price) VALUES (?, ?)", (name, price))
         conn.commit()
-        bot.reply_to(msg, "✅ Скин добавлен.")
-    elif msg.text.startswith("/removeskin") and len(args) >= 2:
-        name = " ".join(args[1:])
-        c.execute("DELETE FROM shop WHERE name=?", (name,))
+        bot.reply_to(message, "✅ Скин добавлен.")
+    elif message.text.startswith("/removeskin") and len(cmd) >= 2:
+        name = " ".join(cmd[1:])
+        c.execute("DELETE FROM shop WHERE name = ?", (name,))
         conn.commit()
-        bot.reply_to(msg, "✅ Скин удалён.")
-    elif msg.text.startswith("/add") and len(args) == 3:
-        target_id, amount = int(args[1]), int(args[2])
-        c.execute("SELECT user_id FROM users WHERE user_id=?", (target_id,))
-        if c.fetchone():
-            c.execute("UPDATE users SET caps = caps + ? WHERE user_id=?", (amount, target_id))
-            conn.commit()
-            bot.reply_to(msg, "✅ Кэпы добавлены.")
+        bot.reply_to(message, "✅ Скин удалён.")
+    elif message.text.startswith("/add") and len(cmd) == 3:
+        target_id, amount = int(cmd[1]), int(cmd[2])
+        c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
+        if not c.fetchone():
+            bot.reply_to(message, "❌ Пользователь не найден.")
         else:
-            bot.reply_to(msg, "❌ Пользователь не найден.")
-    elif msg.text.startswith("/remove") and len(args) == 3:
-        target_id, amount = int(args[1]), int(args[2])
-        c.execute("UPDATE users SET caps = caps - ? WHERE user_id=?", (amount, target_id))
-        conn.commit()
-        bot.reply_to(msg, "✅ Кэпы убавлены.")
-    else:
-        bot.reply_to(msg, "❗ Неверный формат команды.")
-    conn.close()
+            c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, target_id))
+            conn.commit()
+            bot.reply_to(message, "✅ Кэпы добавлены.")
+    elif message.text.startswith("/remove") and len(cmd) == 3:
+        target_id, amount = int(cmd[1]), int(cmd[2])
+        c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
+        if not c.fetchone():
+            bot.reply_to(message, "❌ Пользователь не найден.")
+        else:
+            c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, target_id))
+            conn.commit()
+            bot.reply_to(message, "✅ Кэпы удалены.")
 
-# ─── Flask для Render ──────────────────────────────────────────────────────
+# --- Flask endpoint для webhook ---
 @app.route("/", methods=["POST"])
 def webhook():
     bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
-    return "!", 200
+    return "", 200
 
-@app.route("/", methods=["GET"])
-def index():
-    return "AvelShop Bot работает!", 200
-
-# ─── Установка вебхука ─────────────────────────────────────────────────────
-bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
-
-# ─── Запуск Flask ──────────────────────────────────────────────────────────
+# --- Запуск локально (не используется на Render) ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
