@@ -94,7 +94,7 @@ def show_admin(message):
 /addskin <название> <цена>
 /removeskin <название>
 /add <id> <сумма>
-/remove <id> <сумма>
+/remove <id> <сумма>"
 /users")
     else:
         bot.send_message(message.chat.id, "⛔ Доступ запрещён.")
