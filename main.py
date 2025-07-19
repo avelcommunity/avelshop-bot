@@ -155,6 +155,12 @@ def webhook():
 
 # --- Запуск локально (не используется на Render) ---
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    print("[INFO] Webhook установлен")
+    
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
