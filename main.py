@@ -57,8 +57,6 @@ def get_rank(balance):
 bot.set_my_commands([
     telebot.types.BotCommand("start", "Запустить бота"),
     telebot.types.BotCommand("menu", "Показать главное меню"),
-    telebot.types.BotCommand("admin", "Показать админку (для админов)"),
-    telebot.types.BotCommand("users", "Список пользователей (только админ)")
 ])
 
 # --- Меню ---
