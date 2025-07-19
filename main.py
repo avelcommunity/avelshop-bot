@@ -90,12 +90,12 @@ def start(message):
 @bot.message_handler(commands=["admin"])
 def show_admin(message):
     if message.from_user.id in ADMIN_IDS:
-        bot.send_message(message.chat.id, "🔧 Команды:
+       bot.send_message(message.chat.id, """🔧 Команды:
 /addskin <название> <цена>
 /removeskin <название>
 /add <id> <сумма>
-/remove <id> <сумма>"
-/users")
+/remove <id> <сумма>
+/users""")
     else:
         bot.send_message(message.chat.id, "⛔ Доступ запрещён.")
 
