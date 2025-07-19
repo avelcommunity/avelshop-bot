@@ -65,16 +65,18 @@ def main_menu():
         telebot.types.InlineKeyboardButton("📊 Топ 10", callback_data="top")
     )
     markup.row(
-        telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help"),
-        telebot.types.InlineKeyboardButton("📍 Главное меню", callback_data="menu")
+        telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help")
     )
-    if user_id in ADMIN_IDS:
-        markup.add(telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin"))
     return markup
 
-@bot.message_handler(commands=["start", "menu"])
+# --- Кастомное меню кнопок ---
+def command_keyboard():
+    keyboard = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("📍 Главное меню")
+    return keyboard
+
+@bot.message_handler(commands=["start"])
 def start(message):
-    global user_id
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
     c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
@@ -82,6 +84,11 @@ def start(message):
         c.execute("INSERT INTO users (id, username, balance) VALUES (?, ?, ?)", (user_id, username, 0))
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
+    bot.send_message(user_id, "Выберите действие:", reply_markup=command_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == "📍 Главное меню")
+def show_main_menu(message):
+    bot.send_message(message.chat.id, "📍 Главное меню:", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -138,12 +145,6 @@ def handle_query(call):
         conn.commit()
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
 
-    elif call.data == "admin":
-        if user_id in ADMIN_IDS:
-            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users")
-        else:
-            bot.send_message(user_id, "⛔ Доступ запрещён.")
-
     elif call.data == "top":
         c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
         users = c.fetchall()
@@ -170,6 +171,12 @@ def handle_query(call):
             "1801-3000 Майор (A)\n3000-9999 Полковник (AA)\n10000+ Генерал (S)"
         )
         bot.send_message(user_id, help_msg)
+
+    elif call.data == "admin":
+        if user_id in ADMIN_IDS:
+            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users")
+        else:
+            bot.send_message(user_id, "⛔ Доступ запрещён.")
 
 @bot.message_handler(commands=["addskin", "removeskin", "add", "remove", "users"])
 def admin_commands(message):
@@ -206,12 +213,15 @@ def admin_commands(message):
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
     elif message.text.startswith("/users"):
-        c.execute("SELECT username, id FROM users")
+        c.execute("SELECT id, username FROM users")
         users = c.fetchall()
-        msg = "📋 Зарегистрированные пользователи:\n"
-        for uname, uid in users:
-            msg += f"@{uname or 'unknown'} — {uid}\n"
-        bot.reply_to(message, msg)
+        if users:
+            info = "👥 Зарегистрированные пользователи:\n"
+            for uid, uname in users:
+                info += f"@{uname or 'unknown'} | ID: {uid}\n"
+            bot.reply_to(message, info)
+        else:
+            bot.reply_to(message, "❌ Пользователей не найдено.")
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -223,4 +233,5 @@ if __name__ == "__main__":
     bot.set_webhook(url=WEBHOOK_URL)
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
