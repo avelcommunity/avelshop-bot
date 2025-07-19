@@ -6,18 +6,17 @@ import os
 TOKEN = "7901522397:AAGtp5KPLlUDtAy7FPxoFpOX9uj0SYVL-gQ"
 WEBHOOK_URL = "https://avelshop-bot.onrender.com/"
 
+ADMIN_IDS = [6425403420, 333849950]
+
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# --- DB SETUP ---
 conn = sqlite3.connect("avelshop.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT,
-    first_name TEXT,
-    last_name TEXT,
     balance INTEGER DEFAULT 0
 )
 """)
@@ -35,6 +34,25 @@ CREATE TABLE IF NOT EXISTS shop (
 """)
 conn.commit()
 
+# --- Звания ---
+def get_rank(balance):
+    if balance >= 10000:
+        return "Генерал (S)"
+    elif balance >= 3000:
+        return "Полковник (AA)"
+    elif balance >= 1801:
+        return "Майор (A)"
+    elif balance >= 1001:
+        return "Капитан (B)"
+    elif balance >= 501:
+        return "Лейтенант (C)"
+    elif balance >= 201:
+        return "Сержант (D)"
+    elif balance >= 35:
+        return "Капрал (E)"
+    else:
+        return "Новобранец"
+
 # --- Меню ---
 def main_menu():
     markup = telebot.types.InlineKeyboardMarkup()
@@ -44,25 +62,23 @@ def main_menu():
     )
     markup.row(
         telebot.types.InlineKeyboardButton("💰 Баланс", callback_data="balance"),
-        telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin")
+        telebot.types.InlineKeyboardButton("📊 Топ 10", callback_data="top")
+    )
+    markup.row(
+        telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help")
     )
     return markup
 
-# --- Старт ---
 @bot.message_handler(commands=["start"])
 def start(message):
     user_id = message.from_user.id
-    username = message.from_user.username
-    first_name = message.from_user.first_name
-    last_name = message.from_user.last_name
+    username = message.from_user.username or "unknown"
     c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
     if not c.fetchone():
-        c.execute("INSERT INTO users (id, username, first_name, last_name, balance) VALUES (?, ?, ?, ?, ?)",
-                  (user_id, username, first_name, last_name, 0))
+        c.execute("INSERT INTO users (id, username, balance) VALUES (?, ?, ?)", (user_id, username, 0))
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
-# --- Обработка кнопок ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     user_id = call.from_user.id
@@ -70,8 +86,9 @@ def handle_query(call):
     if call.data == "balance":
         c.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
         balance = c.fetchone()[0]
+        rank = get_rank(balance)
         bot.answer_callback_query(call.id)
-        bot.send_message(user_id, f"💰 У вас {balance} Кэпов.")
+        bot.send_message(user_id, f"💰 У вас {balance} Кэпов 🎖\n🎖 Звание: {rank}")
 
     elif call.data == "inventory":
         c.execute("SELECT item FROM inventory WHERE user_id = ?", (user_id,))
@@ -91,7 +108,7 @@ def handle_query(call):
         msg = "🎁 Доступные скины:\n"
         markup = telebot.types.InlineKeyboardMarkup()
         for name, price in skins:
-            msg += f"{name} - {price} Кэпов\n"
+            msg += f"{name} - {price} Кэпов 🎖\n"
             markup.add(telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buy|{name}"))
         bot.send_message(user_id, msg, reply_markup=markup)
 
@@ -118,26 +135,54 @@ def handle_query(call):
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
 
     elif call.data == "admin":
-        bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users")
+        if user_id in ADMIN_IDS:
+            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>")
+        else:
+            bot.send_message(user_id, "⛔ Доступ запрещён.")
 
-# --- Команды админа ---
-@bot.message_handler(commands=["addskin", "removeskin", "add", "remove", "users"])
+    elif call.data == "top":
+        c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
+        users = c.fetchall()
+        msg = "🏆 Топ 10 по КЭПам:\n"
+        for i, (uid, uname, bal) in enumerate(users[:10], 1):
+            msg += f"{i}. @{uname or 'unknown'} - {bal} 🎖 ({get_rank(bal)})\n"
+        user_place = next((i+1 for i, (uid, _, _) in enumerate(users) if uid == user_id), None)
+        msg += f"\nВы на {user_place} месте."
+        bot.send_message(user_id, msg)
+
+    elif call.data == "help":
+        help_msg = (
+            "КЕП — это внутренняя система рейтинга активности игроков в комьюнити AVEL.\n"
+            "Участники зарабатывают КЕПЫ за участие в турнирах, победы, вклад в развитие и поддержку комьюнити.\n\n"
+            "🔒 КЕПЫ нельзя купить. Их можно только заработать.\n"
+            "🎖 Как заработать КЕПЫ?\n\n"
+            "Участие в турнире +5\nВыход в полуфинал +5\nВыход в финал +10\nПобеда в турнире +25\nMVP турнира +10\n"
+            "Привёл нового участника +10\nПомощь организатору/стримеру +5–10\nКапитан команды +10\n"
+            "Помощь в развитии комьюнити +5–10\nДонат +5–35\nСпонсорство +10\nШоу-матч +5\n"
+            "2000+ ELO (+200 после 10 lvl) +20 (единожды)\n\n"
+            "🚫 Штрафы:\nНе пришёл -50\nОпоздание -10\nТоксичность -10\nБан -30\nОтмена без причины -10\n"
+            "⚠️ Применяются после 3 турниров подряд.\n\n"
+            "🧱 Ранги:\n35-200 Капрал (E)\n201-500 Сержант (D)\n501-1000 Лейтенант (C)\n1001-1800 Капитан (B)\n"
+            "1801-3000 Майор (A)\n3000-9999 Полковник (AA)\n10000+ Генерал (S)"
+        )
+        bot.send_message(user_id, help_msg)
+
+@bot.message_handler(commands=["addskin", "removeskin", "add", "remove"])
 def admin_commands(message):
     user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        return
     cmd = message.text.split()
-
     if message.text.startswith("/addskin") and len(cmd) >= 3:
         name, price = " ".join(cmd[1:-1]), int(cmd[-1])
         c.execute("INSERT INTO shop (name, price) VALUES (?, ?)", (name, price))
         conn.commit()
         bot.reply_to(message, "✅ Скин добавлен.")
-
     elif message.text.startswith("/removeskin") and len(cmd) >= 2:
         name = " ".join(cmd[1:])
         c.execute("DELETE FROM shop WHERE name = ?", (name,))
         conn.commit()
         bot.reply_to(message, "✅ Скин удалён.")
-
     elif message.text.startswith("/add") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
         c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
@@ -147,7 +192,6 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы добавлены.")
-
     elif message.text.startswith("/remove") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
         c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
@@ -158,23 +202,13 @@ def admin_commands(message):
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
 
-    elif message.text.startswith("/users"):
-        c.execute("SELECT id, username, first_name, last_name, balance FROM users")
-        rows = c.fetchall()
-        text = "👥 Зарегистрированные пользователи:\n"
-        for u_id, uname, fname, lname, bal in rows:
-            text += f"ID: {u_id} | {uname or fname or 'Без имени'} | Баланс: {bal}\n"
-        bot.reply_to(message, text)
-
-# --- Flask endpoint ---
 @app.route("/", methods=["POST"])
 def webhook():
     bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
     return "", 200
 
-# --- Webhook запуск ---
 if __name__ == "__main__":
-    import waitress
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-    waitress.serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
