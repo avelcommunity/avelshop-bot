@@ -65,7 +65,8 @@ def main_menu():
         telebot.types.InlineKeyboardButton("📊 Топ 10", callback_data="top")
     )
     markup.row(
-        telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help")
+        telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help"),
+        telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin")
     )
     return markup
 
@@ -138,7 +139,7 @@ def handle_query(call):
         if user_id in ADMIN_IDS:
             bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>")
         else:
-            bot.send_message(user_id, "⛔ Доступ запрещён.")
+            bot.answer_callback_query(call.id, "⛔ Нет доступа")
 
     elif call.data == "top":
         c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
@@ -212,3 +213,4 @@ if __name__ == "__main__":
     bot.set_webhook(url=WEBHOOK_URL)
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
