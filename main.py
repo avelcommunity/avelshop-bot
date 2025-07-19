@@ -66,7 +66,7 @@ def main_menu():
     )
     markup.row(
         telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help"),
-        telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin")
+        telebot.types.InlineKeyboardButton("📍 Главное меню", callback_data="main")
     )
     return markup
 
@@ -137,9 +137,9 @@ def handle_query(call):
 
     elif call.data == "admin":
         if user_id in ADMIN_IDS:
-            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>")
+            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
         else:
-            bot.answer_callback_query(call.id, "⛔ Нет доступа")
+            bot.send_message(user_id, "⛔ Доступ запрещён.")
 
     elif call.data == "top":
         c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
@@ -168,7 +168,10 @@ def handle_query(call):
         )
         bot.send_message(user_id, help_msg)
 
-@bot.message_handler(commands=["addskin", "removeskin", "add", "remove"])
+    elif call.data == "main":
+        bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
+
+@bot.message_handler(commands=["addskin", "removeskin", "add", "remove", "users"])
 def admin_commands(message):
     user_id = message.from_user.id
     if user_id not in ADMIN_IDS:
@@ -202,6 +205,11 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
+    elif message.text.startswith("/users"):
+        c.execute("SELECT id, username FROM users")
+        users = c.fetchall()
+        lines = [f"@{uname or 'unknown'} — {uid}" for uid, uname in users]
+        bot.reply_to(message, "📋 Зарегистрированные пользователи:\n" + "\n".join(lines))
 
 @app.route("/", methods=["POST"])
 def webhook():
