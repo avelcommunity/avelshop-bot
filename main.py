@@ -9,6 +9,13 @@ WEBHOOK_URL = "https://avelshop-bot.onrender.com/"
 ADMIN_IDS = [6425403420, 333849950]
 
 bot = telebot.TeleBot(TOKEN)
+
+# Установка встроенного меню команд
+bot.set_my_commands([
+    telebot.types.BotCommand("/start", "Запустить бота"),
+    telebot.types.BotCommand("/menu", "Главное меню")
+])
+
 app = Flask(__name__)
 
 conn = sqlite3.connect("avelshop.db", check_same_thread=False)
@@ -53,12 +60,6 @@ def get_rank(balance):
     else:
         return "Новобранец"
 
-# --- Команды меню Telegram ---
-bot.set_my_commands([
-    telebot.types.BotCommand("start", "Запустить бота"),
-    telebot.types.BotCommand("menu", "Показать главное меню"),
-])
-
 # --- Меню ---
 def main_menu():
     markup = telebot.types.InlineKeyboardMarkup()
@@ -75,7 +76,7 @@ def main_menu():
     )
     return markup
 
-@bot.message_handler(commands=["start", "menu"])
+@bot.message_handler(commands=["start"])
 def start(message):
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
@@ -85,28 +86,9 @@ def start(message):
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
-@bot.message_handler(commands=["admin"])
-def show_admin(message):
-    if message.from_user.id in ADMIN_IDS:
-       bot.send_message(message.chat.id, """🔧 Команды:
-/addskin <название> <цена>
-/removeskin <название>
-/add <id> <сумма>
-/remove <id> <сумма>
-/users""")
-    else:
-        bot.send_message(message.chat.id, "⛔ Доступ запрещён.")
-
-@bot.message_handler(commands=["users"])
-def show_users(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    c.execute("SELECT id, username FROM users")
-    users = c.fetchall()
-    text = "👥 Зарегистрированные пользователи:\n"
-    for uid, uname in users:
-        text += f"@{uname or 'unknown'} — {uid}\n"
-    bot.send_message(message.chat.id, text)
+@bot.message_handler(commands=["menu"])
+def menu_command(message):
+    bot.send_message(message.chat.id, "📍 Главное меню:", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -162,6 +144,12 @@ def handle_query(call):
         c.execute("INSERT INTO inventory (user_id, item) VALUES (?, ?)", (user_id, item))
         conn.commit()
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
+
+    elif call.data == "admin":
+        if user_id in ADMIN_IDS:
+            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users")
+        else:
+            bot.send_message(user_id, "⛔ Доступ запрещён.")
 
     elif call.data == "top":
         c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
@@ -224,6 +212,15 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
+
+@bot.message_handler(commands=["users"])
+def list_users(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    c.execute("SELECT id, username FROM users")
+    users = c.fetchall()
+    lines = [f"{uname or 'unknown'} — {uid}" for uid, uname in users]
+    bot.send_message(message.chat.id, "📋 Зарегистрированные пользователи:\n" + "\n".join(lines))
 
 @app.route("/", methods=["POST"])
 def webhook():
