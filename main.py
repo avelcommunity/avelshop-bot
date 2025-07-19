@@ -53,6 +53,14 @@ def get_rank(balance):
     else:
         return "Новобранец"
 
+# --- Команды меню Telegram ---
+bot.set_my_commands([
+    telebot.types.BotCommand("start", "Запустить бота"),
+    telebot.types.BotCommand("menu", "Показать главное меню"),
+    telebot.types.BotCommand("admin", "Показать админку (для админов)"),
+    telebot.types.BotCommand("users", "Список пользователей (только админ)")
+])
+
 # --- Меню ---
 def main_menu():
     markup = telebot.types.InlineKeyboardMarkup()
@@ -69,7 +77,7 @@ def main_menu():
     )
     return markup
 
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=["start", "menu"])
 def start(message):
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
@@ -79,10 +87,28 @@ def start(message):
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
-@bot.message_handler(commands=["menu"])
-def show_menu(message):
-    user_id = message.from_user.id
-    bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
+@bot.message_handler(commands=["admin"])
+def show_admin(message):
+    if message.from_user.id in ADMIN_IDS:
+        bot.send_message(message.chat.id, "🔧 Команды:
+/addskin <название> <цена>
+/removeskin <название>
+/add <id> <сумма>
+/remove <id> <сумма>
+/users")
+    else:
+        bot.send_message(message.chat.id, "⛔ Доступ запрещён.")
+
+@bot.message_handler(commands=["users"])
+def show_users(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    c.execute("SELECT id, username FROM users")
+    users = c.fetchall()
+    text = "👥 Зарегистрированные пользователи:\n"
+    for uid, uname in users:
+        text += f"@{uname or 'unknown'} — {uid}\n"
+    bot.send_message(message.chat.id, text)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -165,24 +191,6 @@ def handle_query(call):
             "1801-3000 Майор (A)\n3000-9999 Полковник (AA)\n10000+ Генерал (S)"
         )
         bot.send_message(user_id, help_msg)
-
-@bot.message_handler(commands=["admin"])
-def show_admin(message):
-    user_id = message.from_user.id
-    if user_id in ADMIN_IDS:
-        bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
-    else:
-        bot.send_message(user_id, "⛔ Доступ запрещён.")
-
-@bot.message_handler(commands=["users"])
-def list_users(message):
-    if message.from_user.id in ADMIN_IDS:
-        c.execute("SELECT id, username FROM users")
-        users = c.fetchall()
-        msg = "👥 Зарегистрированные пользователи:\n"
-        for uid, uname in users:
-            msg += f"@{uname or 'unknown'} — {uid}\n"
-        bot.send_message(message.chat.id, msg)
 
 @bot.message_handler(commands=["addskin", "removeskin", "add", "remove"])
 def admin_commands(message):
