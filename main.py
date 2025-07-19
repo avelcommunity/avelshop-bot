@@ -66,12 +66,15 @@ def main_menu():
     )
     markup.row(
         telebot.types.InlineKeyboardButton("📖 Инструкция", callback_data="help"),
-        telebot.types.InlineKeyboardButton("📍 Главное меню", callback_data="main")
+        telebot.types.InlineKeyboardButton("📍 Главное меню", callback_data="menu")
     )
+    if user_id in ADMIN_IDS:
+        markup.add(telebot.types.InlineKeyboardButton("🛠 Админка", callback_data="admin"))
     return markup
 
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=["start", "menu"])
 def start(message):
+    global user_id
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
     c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
@@ -137,7 +140,7 @@ def handle_query(call):
 
     elif call.data == "admin":
         if user_id in ADMIN_IDS:
-            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
+            bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users")
         else:
             bot.send_message(user_id, "⛔ Доступ запрещён.")
 
@@ -167,9 +170,6 @@ def handle_query(call):
             "1801-3000 Майор (A)\n3000-9999 Полковник (AA)\n10000+ Генерал (S)"
         )
         bot.send_message(user_id, help_msg)
-
-    elif call.data == "main":
-        bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
 @bot.message_handler(commands=["addskin", "removeskin", "add", "remove", "users"])
 def admin_commands(message):
@@ -206,10 +206,12 @@ def admin_commands(message):
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
     elif message.text.startswith("/users"):
-        c.execute("SELECT id, username FROM users")
+        c.execute("SELECT username, id FROM users")
         users = c.fetchall()
-        lines = [f"@{uname or 'unknown'} — {uid}" for uid, uname in users]
-        bot.reply_to(message, "📋 Зарегистрированные пользователи:\n" + "\n".join(lines))
+        msg = "📋 Зарегистрированные пользователи:\n"
+        for uname, uid in users:
+            msg += f"@{uname or 'unknown'} — {uid}\n"
+        bot.reply_to(message, msg)
 
 @app.route("/", methods=["POST"])
 def webhook():
