@@ -79,10 +79,10 @@ def start(message):
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
-@bot.message_handler(commands=["admin"])
-def show_admin_menu(message):
-    if message.from_user.id in ADMIN_IDS:
-        bot.send_message(message.chat.id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
+@bot.message_handler(commands=["menu"])
+def show_menu(message):
+    user_id = message.from_user.id
+    bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -166,7 +166,25 @@ def handle_query(call):
         )
         bot.send_message(user_id, help_msg)
 
-@bot.message_handler(commands=["addskin", "removeskin", "add", "remove", "users"])
+@bot.message_handler(commands=["admin"])
+def show_admin(message):
+    user_id = message.from_user.id
+    if user_id in ADMIN_IDS:
+        bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
+    else:
+        bot.send_message(user_id, "⛔ Доступ запрещён.")
+
+@bot.message_handler(commands=["users"])
+def list_users(message):
+    if message.from_user.id in ADMIN_IDS:
+        c.execute("SELECT id, username FROM users")
+        users = c.fetchall()
+        msg = "👥 Зарегистрированные пользователи:\n"
+        for uid, uname in users:
+            msg += f"@{uname or 'unknown'} — {uid}\n"
+        bot.send_message(message.chat.id, msg)
+
+@bot.message_handler(commands=["addskin", "removeskin", "add", "remove"])
 def admin_commands(message):
     user_id = message.from_user.id
     if user_id not in ADMIN_IDS:
@@ -200,13 +218,6 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
-    elif message.text.startswith("/users"):
-        c.execute("SELECT id, username FROM users")
-        rows = c.fetchall()
-        text = "👥 Зарегистрированные пользователи:\n"
-        for uid, uname in rows:
-            text += f"• @{uname or 'unknown'} — {uid}\n"
-        bot.reply_to(message, text)
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -218,5 +229,4 @@ if __name__ == "__main__":
     bot.set_webhook(url=WEBHOOK_URL)
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
 
