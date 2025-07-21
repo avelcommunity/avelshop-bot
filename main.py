@@ -11,7 +11,7 @@ ADMIN_IDS = [6425403420, 333849950]
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# --- Подключение к PostgreSQL ---
+# Подключение к PostgreSQL
 conn = psycopg2.connect(
     host=os.environ["PGHOST"],
     database=os.environ["PGDATABASE"],
@@ -21,7 +21,7 @@ conn = psycopg2.connect(
 )
 c = conn.cursor()
 
-# --- Таблицы ---
+# Таблицы
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT PRIMARY KEY,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS shop (
 """)
 conn.commit()
 
-# --- Звания ---
+# Звания
 def get_rank(balance):
     if balance >= 10000:
         return "Генерал (S)"
@@ -62,7 +62,7 @@ def get_rank(balance):
     else:
         return "Новобранец"
 
-# --- Меню ---
+# Главное меню
 def main_menu():
     markup = telebot.types.InlineKeyboardMarkup()
     markup.row(
@@ -78,6 +78,7 @@ def main_menu():
     )
     return markup
 
+# Команда /start
 @bot.message_handler(commands=["start"])
 def start(message):
     user_id = message.from_user.id
@@ -86,6 +87,17 @@ def start(message):
     if not c.fetchone():
         c.execute("INSERT INTO users (id, username, balance) VALUES (%s, %s, %s)", (user_id, username, 0))
         conn.commit()
+
+    greeting = (
+        "Добро пожаловать в AvelShop!\n"
+        "За Кепы вы можете приобрести:\n\n"
+        " • 🎮 бонусы и скидки на участие\n"
+        " • 🎁 эксклюзивные скины CS2\n"
+        " • 👕 продукцию AVEL\n"
+        " • 🎫 доступ к платным шоу-матчам\n"
+        " • 👑 льготы и особые привилегии в комьюнити\n"
+    )
+    bot.send_message(user_id, greeting)
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
 @bot.message_handler(commands=["menu"])
@@ -150,8 +162,10 @@ def handle_query(call):
         if c.fetchone():
             bot.send_message(user_id, "📦 У вас уже есть этот скин.")
             return
+        # Покупка
         c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
         c.execute("INSERT INTO inventory (user_id, item) VALUES (%s, %s)", (user_id, item))
+        c.execute("DELETE FROM shop WHERE name = %s", (item,))  # Удалить скин из магазина
         conn.commit()
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
 
@@ -232,5 +246,4 @@ if __name__ == "__main__":
     bot.set_webhook(url=WEBHOOK_URL)
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
 
