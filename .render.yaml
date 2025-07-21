@@ -1,0 +1,5 @@
+databases:
+  - name: avelshop-db
+    databaseName: avelshop
+    user: aveluser
+    plan: free
