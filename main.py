@@ -1,6 +1,6 @@
 from flask import Flask, request
 import telebot
-import sqlite3
+import psycopg2
 import os
 
 TOKEN = "7901522397:AAGtp5KPLlUDtAy7FPxoFpOX9uj0SYVL-gQ"
@@ -11,18 +11,27 @@ ADMIN_IDS = [6425403420, 333849950]
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-conn = sqlite3.connect("avelshop.db", check_same_thread=False)
+# --- Подключение к PostgreSQL ---
+conn = psycopg2.connect(
+    host=os.environ["PGHOST"],
+    database=os.environ["PGDATABASE"],
+    user=os.environ["PGUSER"],
+    password=os.environ["PGPASSWORD"],
+    port=os.environ.get("PGPORT", 5432)
+)
 c = conn.cursor()
+
+# --- Таблицы ---
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     username TEXT,
     balance INTEGER DEFAULT 0
 )
 """)
 c.execute("""
 CREATE TABLE IF NOT EXISTS inventory (
-    user_id INTEGER,
+    user_id BIGINT,
     item TEXT
 )
 """)
@@ -73,9 +82,9 @@ def main_menu():
 def start(message):
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
-    c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    c.execute("SELECT id FROM users WHERE id = %s", (user_id,))
     if not c.fetchone():
-        c.execute("INSERT INTO users (id, username, balance) VALUES (?, ?, ?)", (user_id, username, 0))
+        c.execute("INSERT INTO users (id, username, balance) VALUES (%s, %s, %s)", (user_id, username, 0))
         conn.commit()
     bot.send_message(user_id, "📍 Главное меню:", reply_markup=main_menu())
 
@@ -96,14 +105,14 @@ def handle_query(call):
     user_id = call.from_user.id
 
     if call.data == "balance":
-        c.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
+        c.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
         balance = c.fetchone()[0]
         rank = get_rank(balance)
         bot.answer_callback_query(call.id)
         bot.send_message(user_id, f"💰 У вас {balance} Кэпов 🎖\n🎖 Звание: {rank}")
 
     elif call.data == "inventory":
-        c.execute("SELECT item FROM inventory WHERE user_id = ?", (user_id,))
+        c.execute("SELECT item FROM inventory WHERE user_id = %s", (user_id,))
         items = c.fetchall()
         if items:
             inv = "\n".join([f"• {item[0]}" for item in items])
@@ -126,23 +135,23 @@ def handle_query(call):
 
     elif call.data.startswith("buy|"):
         item = call.data.split("|", 1)[1]
-        c.execute("SELECT price FROM shop WHERE name = ?", (item,))
+        c.execute("SELECT price FROM shop WHERE name = %s", (item,))
         result = c.fetchone()
         if not result:
             bot.send_message(user_id, "❌ Скин не найден.")
             return
         price = result[0]
-        c.execute("SELECT balance FROM users WHERE id = ?", (user_id,))
+        c.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
         balance = c.fetchone()[0]
         if balance < price:
             bot.send_message(user_id, "⛔ Недостаточно Кэпов.")
             return
-        c.execute("SELECT item FROM inventory WHERE user_id = ? AND item = ?", (user_id, item))
+        c.execute("SELECT item FROM inventory WHERE user_id = %s AND item = %s", (user_id, item))
         if c.fetchone():
             bot.send_message(user_id, "📦 У вас уже есть этот скин.")
             return
-        c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (price, user_id))
-        c.execute("INSERT INTO inventory (user_id, item) VALUES (?, ?)", (user_id, item))
+        c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
+        c.execute("INSERT INTO inventory (user_id, item) VALUES (%s, %s)", (user_id, item))
         conn.commit()
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
 
@@ -181,30 +190,30 @@ def admin_commands(message):
     cmd = message.text.split()
     if message.text.startswith("/addskin") and len(cmd) >= 3:
         name, price = " ".join(cmd[1:-1]), int(cmd[-1])
-        c.execute("INSERT INTO shop (name, price) VALUES (?, ?)", (name, price))
+        c.execute("INSERT INTO shop (name, price) VALUES (%s, %s)", (name, price))
         conn.commit()
         bot.reply_to(message, "✅ Скин добавлен.")
     elif message.text.startswith("/removeskin") and len(cmd) >= 2:
         name = " ".join(cmd[1:])
-        c.execute("DELETE FROM shop WHERE name = ?", (name,))
+        c.execute("DELETE FROM shop WHERE name = %s", (name,))
         conn.commit()
         bot.reply_to(message, "✅ Скин удалён.")
     elif message.text.startswith("/add") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
-        c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
+        c.execute("SELECT id FROM users WHERE id = %s", (target_id,))
         if not c.fetchone():
             bot.reply_to(message, "❌ Пользователь не найден.")
         else:
-            c.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, target_id))
+            c.execute("UPDATE users SET balance = balance + %s WHERE id = %s", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы добавлены.")
     elif message.text.startswith("/remove") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
-        c.execute("SELECT id FROM users WHERE id = ?", (target_id,))
+        c.execute("SELECT id FROM users WHERE id = %s", (target_id,))
         if not c.fetchone():
             bot.reply_to(message, "❌ Пользователь не найден.")
         else:
-            c.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, target_id))
+            c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
     elif message.text.startswith("/users"):
