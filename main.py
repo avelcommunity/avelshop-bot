@@ -231,10 +231,12 @@ def admin_commands(message):
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
     elif message.text.startswith("/users"):
-        c.execute("SELECT username, id FROM users")
-        users = c.fetchall()
-        msg = "📋 Зарегистрированные пользователи:\n" + "\n".join([f"{u} — {i}" for u, i in users])
-        bot.send_message(user_id, msg)
+       c.execute("SELECT username, id, balance FROM users ORDER BY balance DESC")
+users = c.fetchall()
+msg = "📋 Зарегистрированные пользователи:\n"
+for username, uid, balance in users:
+    msg += f"@{username or 'unknown'} — {uid} — {balance} КЭПов 🎖\n"
+bot.send_message(user_id, msg)
 
 @app.route("/", methods=["POST"])
 def webhook():
