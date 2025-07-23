@@ -162,10 +162,9 @@ def handle_query(call):
         if c.fetchone():
             bot.send_message(user_id, "📦 У вас уже есть этот скин.")
             return
-        # Покупка
         c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
         c.execute("INSERT INTO inventory (user_id, item) VALUES (%s, %s)", (user_id, item))
-        c.execute("DELETE FROM shop WHERE name = %s", (item,))  # Удалить скин из магазина
+        c.execute("DELETE FROM shop WHERE name = %s", (item,))
         conn.commit()
         bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
 
@@ -202,16 +201,19 @@ def admin_commands(message):
     if user_id not in ADMIN_IDS:
         return
     cmd = message.text.split()
+
     if message.text.startswith("/addskin") and len(cmd) >= 3:
         name, price = " ".join(cmd[1:-1]), int(cmd[-1])
         c.execute("INSERT INTO shop (name, price) VALUES (%s, %s)", (name, price))
         conn.commit()
         bot.reply_to(message, "✅ Скин добавлен.")
+
     elif message.text.startswith("/removeskin") and len(cmd) >= 2:
         name = " ".join(cmd[1:])
         c.execute("DELETE FROM shop WHERE name = %s", (name,))
         conn.commit()
         bot.reply_to(message, "✅ Скин удалён.")
+
     elif message.text.startswith("/add") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
         c.execute("SELECT id FROM users WHERE id = %s", (target_id,))
@@ -221,6 +223,7 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance + %s WHERE id = %s", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы добавлены.")
+
     elif message.text.startswith("/remove") and len(cmd) == 3:
         target_id, amount = int(cmd[1]), int(cmd[2])
         c.execute("SELECT id FROM users WHERE id = %s", (target_id,))
@@ -230,13 +233,14 @@ def admin_commands(message):
             c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (amount, target_id))
             conn.commit()
             bot.reply_to(message, "✅ Кэпы удалены.")
+
     elif message.text.startswith("/users"):
-       c.execute("SELECT username, id, balance FROM users ORDER BY balance DESC")
-users = c.fetchall()
-msg = "📋 Зарегистрированные пользователи:\n"
-for username, uid, balance in users:
-    msg += f"@{username or 'unknown'} — {uid} — {balance} КЭПов 🎖\n"
-bot.send_message(user_id, msg)
+        c.execute("SELECT username, id, balance FROM users ORDER BY balance DESC")
+        users = c.fetchall()
+        msg = "📋 Зарегистрированные пользователи:\n"
+        for username, uid, balance in users:
+            msg += f"@{username or 'unknown'} — {uid} — {balance} КЭПов 🎖\n"
+        bot.send_message(user_id, msg)
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -248,4 +252,3 @@ if __name__ == "__main__":
     bot.set_webhook(url=WEBHOOK_URL)
     from waitress import serve
     serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
