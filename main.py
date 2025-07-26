@@ -78,7 +78,6 @@ def main_menu():
     )
     return markup
 
-# Команда /start
 @bot.message_handler(commands=["start"])
 def start(message):
     user_id = message.from_user.id
@@ -133,40 +132,59 @@ def handle_query(call):
             bot.send_message(user_id, "🎒 Ваш инвентарь пуст.")
 
     elif call.data == "shop":
-        c.execute("SELECT name, price FROM shop")
+        c.execute("DELETE FROM shop WHERE name IS NULL OR price IS NULL")
+        conn.commit()
+
+        c.execute("SELECT name, price FROM shop ORDER BY price DESC")
         skins = c.fetchall()
+
         if not skins:
-            bot.send_message(user_id, "⛔ Магазин пуст.")
+            bot.send_message(user_id, "⛔ Магазин временно пуст.")
             return
-        msg = "🎁 Доступные скины:\n"
-        markup = telebot.types.InlineKeyboardMarkup()
+
+        msg = "🎁 Доступные скины:\n\n"
+        markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+
         for name, price in skins:
-            msg += f"{name} - {price} Кэпов 🎖\n"
-            markup.add(telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buy|{name}"))
+            safe_name = name.replace("|", "⧸")[:64]
+            msg += f"• {name} — {price} Кэпов 🎖\n"
+            markup.add(
+                telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buy|{safe_name}")
+            )
+
         bot.send_message(user_id, msg, reply_markup=markup)
 
     elif call.data.startswith("buy|"):
-        item = call.data.split("|", 1)[1]
+        item = call.data.split("|", 1)[1].replace("⧸", "|")
         c.execute("SELECT price FROM shop WHERE name = %s", (item,))
         result = c.fetchone()
+
         if not result:
             bot.send_message(user_id, "❌ Скин не найден.")
             return
+
         price = result[0]
         c.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
-        balance = c.fetchone()[0]
+        balance_result = c.fetchone()
+        if not balance_result:
+            bot.send_message(user_id, "❌ Пользователь не найден.")
+            return
+
+        balance = balance_result[0]
         if balance < price:
             bot.send_message(user_id, "⛔ Недостаточно Кэпов.")
             return
-        c.execute("SELECT item FROM inventory WHERE user_id = %s AND item = %s", (user_id, item))
+
+        c.execute("SELECT 1 FROM inventory WHERE user_id = %s AND item = %s", (user_id, item))
         if c.fetchone():
             bot.send_message(user_id, "📦 У вас уже есть этот скин.")
             return
+
         c.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
         c.execute("INSERT INTO inventory (user_id, item) VALUES (%s, %s)", (user_id, item))
         c.execute("DELETE FROM shop WHERE name = %s", (item,))
         conn.commit()
-        bot.send_message(user_id, f"✅ Покупка прошла успешно!\nВы приобрели: {item}")
+        bot.send_message(user_id, f"✅ Вы успешно приобрели: {item}")
 
     elif call.data == "top":
         c.execute("SELECT id, username, balance FROM users ORDER BY balance DESC")
