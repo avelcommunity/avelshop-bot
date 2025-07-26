@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS shop (
 """)
 conn.commit()
 
-# Звания
 def get_rank(balance):
     if balance >= 10000:
         return "Генерал (S)"
@@ -62,7 +61,6 @@ def get_rank(balance):
     else:
         return "Новобранец"
 
-# Главное меню
 def main_menu():
     markup = telebot.types.InlineKeyboardMarkup()
     markup.row(
@@ -86,7 +84,6 @@ def start(message):
     if not c.fetchone():
         c.execute("INSERT INTO users (id, username, balance) VALUES (%s, %s, %s)", (user_id, username, 0))
         conn.commit()
-
     greeting = (
         "Добро пожаловать в AvelShop!\n"
         "За Кепы вы можете приобрести:\n\n"
@@ -110,6 +107,9 @@ def show_admin_panel(message):
         bot.send_message(user_id, "🔧 Команды:\n/addskin <название> <цена>\n/removeskin <название>\n/add <id> <сумма>\n/remove <id> <сумма>\n/users — список пользователей")
     else:
         bot.send_message(user_id, "⛔ Доступ запрещён.")
+
+# Хранилище временных данных магазина
+shop_cache = {}
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -144,21 +144,25 @@ def handle_query(call):
 
         msg = "🎁 Доступные скины:\n\n"
         markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+        shop_cache[user_id] = {}
 
-        for name, price in skins:
-            safe_name = name.replace("|", "⧸")[:64]
+        for idx, (name, price) in enumerate(skins):
+            shop_cache[user_id][str(idx)] = name
             msg += f"• {name} — {price} Кэпов 🎖\n"
-            markup.add(
-                telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buy|{safe_name}")
-            )
+            markup.add(telebot.types.InlineKeyboardButton(f"Купить: {name}", callback_data=f"buyid|{idx}"))
 
         bot.send_message(user_id, msg, reply_markup=markup)
 
-    elif call.data.startswith("buy|"):
-        item = call.data.split("|", 1)[1].replace("⧸", "|")
+    elif call.data.startswith("buyid|"):
+        idx = call.data.split("|", 1)[1]
+        item = shop_cache.get(user_id, {}).get(idx)
+
+        if not item:
+            bot.send_message(user_id, "❌ Не удалось определить скин.")
+            return
+
         c.execute("SELECT price FROM shop WHERE name = %s", (item,))
         result = c.fetchone()
-
         if not result:
             bot.send_message(user_id, "❌ Скин не найден.")
             return
